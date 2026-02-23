@@ -112,9 +112,27 @@ export class App {
   }
 
   async run() {
+    // Check for TTY — terminal-kit needs a real terminal
+    if (!process.stdout.isTTY) {
+      console.error('Error: Upfyn Agents requires an interactive terminal (TTY).');
+      console.error('Run this command directly in your terminal, not piped or redirected.');
+      console.error('\nUsage: upfyn [path]    or    upfyn -g');
+      process.exit(1);
+    }
+
     term.fullscreen(true);
     term.hideCursor();
     term.grabInput({ mouse: false });
+
+    // Handle terminal resize
+    term.on('resize', () => {
+      this.draw();
+    });
+
+    // Handle Ctrl+C gracefully
+    process.on('SIGINT', () => {
+      this.cleanup();
+    });
 
     this.draw();
 
@@ -122,10 +140,7 @@ export class App {
       term.on('key', (key) => {
         this.handleKey(key);
         if (this.shouldQuit) {
-          term.fullscreen(false);
-          term.showCursor();
-          term.grabInput(false);
-          term.processExit(0);
+          this.cleanup();
           resolve();
           return;
         }
@@ -134,14 +149,23 @@ export class App {
     });
   }
 
+  /** Clean up terminal state on exit */
+  cleanup() {
+    term.fullscreen(false);
+    term.showCursor();
+    term.grabInput(false);
+    term.styleReset();
+    term.processExit(0);
+  }
+
   // ═══════════════════════════════════════════
   //  DRAWING
   // ═══════════════════════════════════════════
 
   draw() {
     term.clear();
-    const width = term.width;
-    const height = term.height;
+    const width = (Number.isFinite(term.width) && term.width > 0) ? term.width : 80;
+    const height = (Number.isFinite(term.height) && term.height > 0) ? term.height : 24;
 
     if (this.viewMode === ViewMode.Canvas) {
       this.drawCanvas(width, height);
