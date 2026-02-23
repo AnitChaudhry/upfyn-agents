@@ -79,10 +79,12 @@ const tmuxBackend = {
       const escaped = arg.replace(/'/g, "'\"'\"'");
       shellCommand += ` '${escaped}'`;
     }
+    // Unset CLAUDECODE env var so agents don't think they're nested
+    const cleanCmd = 'unset CLAUDECODE CLAUDE_CODE_SESSION 2>/dev/null; ' + shellCommand;
     const result = spawnSync('tmux', [
       '-L', AGENT_SERVER, 'new-session', '-d',
       '-s', sessionName, '-c', workingDir,
-      'sh', '-c', shellCommand,
+      'sh', '-c', cleanCmd,
     ], { stdio: 'pipe' });
     if (result.status !== 0) {
       throw new Error(`tmux new-session failed: ${result.stderr?.toString() || ''}`);
@@ -164,21 +166,39 @@ const wtBackend = {
     writeFileSync(join(dir, 'backend'), 'wt');
     writeFileSync(logFile, '');
 
-    // Build a wrapper script that runs the agent and tees output to log
+    // Build a wrapper script that runs the agent
+    // Use backslashes for cmd.exe compatibility and quote paths with spaces
     const wrapperScript = join(dir, 'run.cmd');
-    const cmdContent = `@echo off\r\ncd /d "${workingDir}"\r\n${fullCmd}\r\npause\r\n`;
+    const winWorkDir = workingDir.replace(/\//g, '\\');
+    const cmdContent = [
+      '@echo off',
+      ':: Clear inherited env vars that block nested agent launches',
+      'set CLAUDECODE=',
+      'set CLAUDE_CODE_SESSION=',
+      `cd /d "${winWorkDir}"`,
+      'echo.',
+      `echo [Upfyn Agents] Running: ${fullCmd.split('"')[0].trim()}...`,
+      'echo.',
+      fullCmd,
+      'echo.',
+      'echo [Upfyn Agents] Agent session ended.',
+      'pause',
+    ].join('\r\n') + '\r\n';
     writeFileSync(wrapperScript, cmdContent);
+
+    // Quote the wrapper script path (may contain spaces)
+    const quotedWrapper = `"${wrapperScript}"`;
 
     // Spawn in a new Windows Terminal tab
     try {
       const child = spawn('wt.exe', [
         '-w', '0', 'nt',
         '--title', sessionName,
-        'cmd', '/c', wrapperScript,
+        '--', 'cmd', '/c', quotedWrapper,
       ], {
         stdio: 'ignore',
         detached: true,
-        cwd: workingDir,
+        windowsHide: false,
       });
       if (child.pid) {
         writeFileSync(join(dir, 'pid'), String(child.pid));
@@ -186,10 +206,10 @@ const wtBackend = {
       child.unref();
     } catch {
       // Fallback: open in a new cmd window
-      const child = spawn('cmd', ['/c', 'start', `"${sessionName}"`, 'cmd', '/c', wrapperScript], {
+      const child = spawn('cmd', ['/c', 'start', '', 'cmd', '/c', quotedWrapper], {
         stdio: 'ignore',
         detached: true,
-        cwd: workingDir,
+        windowsHide: false,
       });
       if (child.pid) {
         writeFileSync(join(dir, 'pid'), String(child.pid));
@@ -262,9 +282,10 @@ const shellBackend = {
     writeFileSync(join(dir, 'backend'), 'shell');
     writeFileSync(logFile, '');
 
-    // Spawn as a background child process
+    // Spawn as a background child process — clear env vars that block nested agents
     const shell = IS_WIN ? 'cmd' : 'sh';
-    const shellArgs = IS_WIN ? ['/c', fullCmd] : ['-c', fullCmd];
+    const cleanCmd = IS_WIN ? `set CLAUDECODE= && set CLAUDE_CODE_SESSION= && ${fullCmd}` : `unset CLAUDECODE CLAUDE_CODE_SESSION 2>/dev/null; ${fullCmd}`;
+    const shellArgs = IS_WIN ? ['/c', cleanCmd] : ['-c', cleanCmd];
 
     const out = openSync(logFile, 'a');
     const child = spawn(shell, shellArgs, {
