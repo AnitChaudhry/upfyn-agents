@@ -103,17 +103,56 @@ export function exportCanvasToSvg(tasks, connections, theme, projectName) {
 /**
  * Export the board view (task columns) as an SVG file.
  */
+/** Word-wrap text for SVG (approximate character width) */
+function svgWrapText(text, maxChars) {
+  if (!text) return [];
+  const lines = [];
+  const paragraphs = text.split('\n');
+  for (const para of paragraphs) {
+    if (para.trim() === '') { lines.push(''); continue; }
+    const words = para.split(/\s+/);
+    let line = '';
+    for (const word of words) {
+      if (!word) continue;
+      if (line.length + word.length + (line ? 1 : 0) > maxChars) {
+        if (line) lines.push(line);
+        line = word.length > maxChars ? word.slice(0, maxChars) : word;
+      } else {
+        line = line ? line + ' ' + word : word;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+
 export function exportBoardToSvg(tasks, theme, projectName) {
-  const colW = 200;
-  const cardH = 60;
-  const cardGap = 10;
+  const colW = 240;
+  const cardGap = 12;
   const headerH = 50;
   const padding = 20;
+  const lineH = 14; // line height for description text
+  const maxDescLines = 5;
+  const maxChars = Math.floor((colW - 20) / 7.2); // approximate monospace char width
 
-  // Count max cards in any column
-  const maxCards = Math.max(1, ...COLUMNS.map(status => tasks.filter(t => t.status === status).length));
+  // Calculate dynamic card heights per column
+  function cardHeight(task) {
+    const titleLines = svgWrapText(task.title, maxChars).length || 1;
+    const descLines = Math.min(svgWrapText(task.description, maxChars).length, maxDescLines);
+    return titleLines * 16 + 12 + descLines * lineH + 22; // title lines + gap + desc lines + agent badge + padding
+  }
+
+  // Calculate max column height
+  let maxColH = 0;
+  for (const status of COLUMNS) {
+    const colTasks = tasks.filter(t => t.status === status);
+    let h = 0;
+    for (const t of colTasks) h += cardHeight(t) + cardGap;
+    maxColH = Math.max(maxColH, h);
+  }
+
   const svgW = COLUMNS.length * (colW + padding) + padding;
-  const svgH = headerH + maxCards * (cardH + cardGap) + padding * 2 + 40;
+  const svgH = headerH + Math.max(maxColH, 100) + padding * 2 + 40;
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">\n`;
   svg += `<rect width="100%" height="100%" fill="#1a1a2e"/>\n`;
@@ -132,15 +171,36 @@ export function exportBoardToSvg(tasks, theme, projectName) {
     svg += `<line x1="${x}" y1="${y + 28}" x2="${x + colW}" y2="${y + 28}" stroke="${theme.color_dimmed}" stroke-width="1"/>\n`;
 
     // Cards
+    let cy = y + headerH;
     for (let j = 0; j < colTasks.length; j++) {
       const task = colTasks[j];
-      const cy = y + headerH + j * (cardH + cardGap);
+      const ch = cardHeight(task);
+      const descLines = svgWrapText(task.description, maxChars).slice(0, maxDescLines);
 
-      svg += `<rect x="${x}" y="${cy}" width="${colW}" height="${cardH}" rx="4" ry="4" fill="#16213e" stroke="${theme.color_normal}" stroke-width="1"/>\n`;
+      // Card box
+      svg += `<rect x="${x}" y="${cy}" width="${colW}" height="${ch}" rx="4" ry="4" fill="#16213e" stroke="${theme.color_normal}" stroke-width="1.5"/>\n`;
 
-      const titleText = task.title.length > 24 ? task.title.slice(0, 23) + '~' : task.title;
-      svg += `<text x="${x + 10}" y="${cy + 22}" font-family="monospace" font-size="12" fill="${theme.color_text}">${escXml(titleText)}</text>\n`;
-      svg += `<text x="${x + 10}" y="${cy + 42}" font-family="monospace" font-size="10" fill="${theme.color_dimmed}">[${escXml(task.agent)}]${task.prUrl ? ' PR' : ''}${task.htmlContent ? ' HTML' : ''}</text>\n`;
+      // Title (bold, wrapped)
+      const titleWrapped = svgWrapText(task.title, maxChars);
+      if (titleWrapped.length === 0) titleWrapped.push(task.title || 'Untitled');
+      for (let k = 0; k < titleWrapped.length; k++) {
+        svg += `<text x="${x + 10}" y="${cy + 18 + k * 16}" font-family="monospace" font-size="13" fill="${theme.color_text}" font-weight="bold">${escXml(titleWrapped[k])}</text>\n`;
+      }
+      const descStartY = cy + titleWrapped.length * 16 + 12;
+
+      // Description lines
+      for (let k = 0; k < descLines.length; k++) {
+        svg += `<text x="${x + 10}" y="${descStartY + k * lineH}" font-family="monospace" font-size="10" fill="${theme.color_description}">${escXml(descLines[k])}</text>\n`;
+      }
+
+      // Agent badge at bottom
+      const agentY = cy + ch - 8;
+      let badge = `[${task.agent}]`;
+      if (task.prUrl) badge += ' PR';
+      if (task.htmlContent) badge += ' HTML';
+      svg += `<text x="${x + 10}" y="${agentY}" font-family="monospace" font-size="10" fill="${theme.color_dimmed}">${escXml(badge)}</text>\n`;
+
+      cy += ch + cardGap;
     }
   }
 

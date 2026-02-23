@@ -16,7 +16,8 @@ import { CanvasState, ViewMode, ConnectMode, NODE_WIDTH, NODE_HEIGHT, edgeAnchor
 import { SidebarState } from './tui/sidebar.js';
 import { HtmlPreviewState, openInBrowser } from './tui/html-preview.js';
 import { ShellPopup, DiffPopup, TaskSearchState, PrConfirmPopup, PrStatusPopup,
-  DoneConfirmPopup, DeleteConfirmPopup, ReviewConfirmPopup, FileSearchState } from './tui/popups.js';
+  DoneConfirmPopup, DeleteConfirmPopup, ReviewConfirmPopup, FileSearchState,
+  TaskDetailPopup } from './tui/popups.js';
 import { hexToRgb } from './tui/theme.js';
 import { parseMermaid } from './utils/mermaid.js';
 import { exportCanvasToSvg, exportBoardToSvg } from './utils/svg-export.js';
@@ -67,6 +68,7 @@ export class App {
     this.reviewConfirmPopup = null;
     this.fileSearch = null;
     this.htmlPreview = null;
+    this.taskDetailPopup = null;
     this.highlightedFilePaths = new Set();
 
     // Config
@@ -101,6 +103,9 @@ export class App {
 
     // Shell popup refresh timer
     this._shellTimer = null;
+
+    // Column scroll offsets for board view
+    this.columnScrollOffsets = [0, 0, 0, 0, 0];
   }
 
   refreshTasks() {
@@ -184,6 +189,7 @@ export class App {
     if (this.reviewConfirmPopup) this.drawReviewConfirmPopup(width, height);
     if (this.htmlPreview) this.drawHtmlPreview(width, height);
     if (this.fileSearch) this.drawFileSearch(width, height);
+    if (this.taskDetailPopup) this.drawTaskDetailPopup(width, height);
 
     // Input line
     if (this.inputMode === InputMode.InputTitle || this.inputMode === InputMode.InputDescription) {
@@ -194,12 +200,133 @@ export class App {
     this.drawFooter(width, height);
   }
 
+  /** Word-wrap text to fit within maxWidth, returning array of lines */
+  wrapText(text, maxWidth) {
+    if (!text || maxWidth <= 0) return [];
+    const lines = [];
+    const paragraphs = text.split('\n');
+    for (const para of paragraphs) {
+      if (para.trim() === '') { lines.push(''); continue; }
+      const words = para.split(/\s+/);
+      let line = '';
+      for (const word of words) {
+        if (!word) continue;
+        if (line.length + word.length + (line ? 1 : 0) > maxWidth) {
+          if (line) lines.push(line);
+          // Handle words longer than maxWidth
+          if (word.length > maxWidth) {
+            for (let i = 0; i < word.length; i += maxWidth) {
+              lines.push(word.slice(i, i + maxWidth));
+            }
+            line = '';
+          } else {
+            line = word;
+          }
+        } else {
+          line = line ? line + ' ' + word : word;
+        }
+      }
+      if (line) lines.push(line);
+    }
+    return lines;
+  }
+
+  /** Calculate card height for a task */
+  cardHeight(task, innerWidth, maxDescLines) {
+    // top border (1) + title lines + desc lines + agent line (1) + bottom border (1)
+    const titleLines = this.wrapText(task.title, innerWidth - 1).length || 1;
+    const descLines = task.description
+      ? Math.min(this.wrapText(task.description, innerWidth - 1).length, maxDescLines)
+      : 0;
+    return 1 + titleLines + descLines + 1 + 1; // top border + title + desc + agent + bottom border
+  }
+
+  /** Draw a single bordered card, returns actual height used */
+  drawCard(x, y, w, task, isSelected, maxDescLines, contentHeight, theme) {
+    const innerW = w - 2; // inside borders
+    const textW = innerW - 1; // 1 char padding inside border
+    const borderColor = isSelected ? theme.color_selected : theme.color_normal;
+    const titleLines = this.wrapText(task.title, textW);
+    if (titleLines.length === 0) titleLines.push(task.title || 'Untitled');
+    const descLines = task.description ? this.wrapText(task.description, textW) : [];
+    const visibleDescLines = descLines.slice(0, maxDescLines);
+    const h = 1 + titleLines.length + visibleDescLines.length + 1 + 1;
+
+    // Top border
+    if (y >= 1 && y <= contentHeight) {
+      this.moveTo(x, y);
+      this.setColor(borderColor);
+      term('┌' + '─'.repeat(Math.max(0, w - 2)) + '┐');
+    }
+
+    // Title lines (bold, full text wrapped)
+    let row = y + 1;
+    for (let i = 0; i < titleLines.length; i++) {
+      if (row >= 1 && row <= contentHeight) {
+        this.moveTo(x, row);
+        this.setColor(borderColor);
+        term('│');
+        if (isSelected) {
+          this.setColor(theme.color_text);
+        } else {
+          this.setColor(theme.color_popup_header);
+        }
+        term.bold(' ' + titleLines[i].padEnd(textW).slice(0, textW));
+        this.setColor(borderColor);
+        term('│');
+      }
+      row++;
+    }
+
+    // Description lines (dimmed, wrapped)
+    for (let i = 0; i < visibleDescLines.length; i++) {
+      if (row >= 1 && row <= contentHeight) {
+        this.moveTo(x, row);
+        this.setColor(borderColor);
+        term('│');
+        this.setColor(isSelected ? theme.color_text : theme.color_description);
+        term(' ' + visibleDescLines[i].padEnd(textW).slice(0, textW));
+        this.setColor(borderColor);
+        term('│');
+      }
+      row++;
+    }
+
+    // Agent badge line
+    if (row >= 1 && row <= contentHeight) {
+      this.moveTo(x, row);
+      this.setColor(borderColor);
+      term('│');
+      this.setColor(theme.color_dimmed);
+      let badge = ` [${task.agent}]`;
+      if (task.prUrl) badge += ' PR';
+      if (task.htmlContent) badge += ' HTML';
+      if (descLines.length > maxDescLines) badge += ` (+${descLines.length - maxDescLines} more)`;
+      term(badge.padEnd(innerW).slice(0, innerW));
+      this.setColor(borderColor);
+      term('│');
+    }
+    row++;
+
+    // Bottom border
+    if (row >= 1 && row <= contentHeight) {
+      this.moveTo(x, row);
+      this.setColor(borderColor);
+      term('└' + '─'.repeat(Math.max(0, w - 2)) + '┘');
+    }
+
+    return h;
+  }
+
   drawBoard(width, height) {
     const theme = this.config.theme;
-    const colWidth = Math.floor((width - (this.sidebar.visible ? 22 : 0)) / COLUMNS.length);
     const sidebarWidth = this.sidebar.visible ? 22 : 0;
+    const boardWidth = width - sidebarWidth;
+    const colWidth = Math.max(10, Math.floor(boardWidth / COLUMNS.length));
     const boardStartX = sidebarWidth + 1;
-    const contentHeight = height - 3; // leave room for header + footer
+    const contentHeight = height - 2; // leave room for header + footer
+    const cardStartY = 4; // after header + column header + separator
+    const maxDescLines = 5; // max description lines per card
 
     // Header
     this.moveTo(1, 1);
@@ -219,57 +346,102 @@ export class App {
       const x = boardStartX + col * colWidth;
       const isSelectedCol = col === this.board.selectedColumn;
       const tasks = this.board.tasksInColumn(col);
+      const cardW = colWidth - 1; // leave 1 char gap between columns
 
-      // Column header
+      // Column header with dashed border
       this.moveTo(x, 2);
+      this.setColor(isSelectedCol && !this.sidebar.focused ? theme.color_selected : theme.color_dimmed);
+      const headerLabel = ` ${COLUMNS[col]} (${tasks.length})`;
+      // Draw bordered column header
+      term('┌─');
       if (isSelectedCol && !this.sidebar.focused) {
         this.setColor(theme.color_selected);
-        term.bold(` ${COLUMNS[col].toUpperCase()} (${tasks.length}) `);
+        term.bold(headerLabel);
       } else {
         this.setColor(theme.color_column_header);
-        term(` ${COLUMNS[col].toUpperCase()} (${tasks.length}) `);
+        term(headerLabel);
       }
+      this.setColor(isSelectedCol && !this.sidebar.focused ? theme.color_selected : theme.color_dimmed);
+      term('─'.repeat(Math.max(0, cardW - 3 - headerLabel.length)) + '┐');
 
-      // Column border
+      // Column border line
       this.moveTo(x, 3);
       this.setColor(isSelectedCol && !this.sidebar.focused ? theme.color_selected : theme.color_dimmed);
-      term('─'.repeat(Math.max(0, colWidth - 1)));
+      term('├' + '─'.repeat(Math.max(0, cardW - 2)) + '┤');
 
-      // Tasks
-      for (let row = 0; row < tasks.length; row++) {
-        const y = 4 + row * 3;
-        if (y >= contentHeight) break;
-        const task = tasks[row];
-        const isSelected = isSelectedCol && row === this.board.selectedRow && !this.sidebar.focused;
-
-        this.moveTo(x, y);
-        if (isSelected) {
-          this.setColor(theme.color_selected);
-          term.bold('> ');
-        } else {
-          term('  ');
-        }
-
-        // Task title (truncated)
-        this.setColor(isSelected ? theme.color_text : theme.color_description);
-        const maxTitle = colWidth - 4;
-        const title = task.title.length > maxTitle ? task.title.slice(0, maxTitle - 1) + '~' : task.title;
-        term(title);
-
-        // Agent badge
-        if (y + 1 < contentHeight) {
-          this.moveTo(x + 2, y + 1);
-          this.setColor(theme.color_dimmed);
-          const badge = `[${task.agent}]`;
-          term(badge);
-          if (task.prUrl) {
-            term(' PR');
-          }
-          if (task.htmlContent) {
-            term(' HTML');
-          }
-        }
+      // Auto-scroll: ensure selected card is visible
+      if (isSelectedCol && !this.sidebar.focused) {
+        this.ensureCardVisible(col, tasks, cardW - 2, maxDescLines, contentHeight - cardStartY);
       }
+
+      const scrollOffset = this.columnScrollOffsets[col] || 0;
+
+      // Draw task cards
+      let curY = cardStartY;
+      for (let row = 0; row < tasks.length; row++) {
+        const task = tasks[row];
+        const ch = this.cardHeight(task, cardW - 2, maxDescLines);
+
+        // Skip cards above scroll offset
+        if (row < scrollOffset) continue;
+
+        if (curY + ch > contentHeight) break; // no more room
+
+        const isSelected = isSelectedCol && row === this.board.selectedRow && !this.sidebar.focused;
+        this.drawCard(x, curY, cardW, task, isSelected, maxDescLines, contentHeight, theme);
+        curY += ch + 1; // 1 line gap between cards
+      }
+
+      // Draw column side borders for remaining space
+      for (let ry = curY; ry <= contentHeight; ry++) {
+        this.moveTo(x, ry);
+        this.setColor(isSelectedCol && !this.sidebar.focused ? theme.color_selected : theme.color_dimmed);
+        term('│');
+        this.moveTo(x + cardW - 1, ry);
+        term('│');
+      }
+
+      // Column bottom border
+      if (contentHeight + 1 <= height) {
+        this.moveTo(x, contentHeight);
+        this.setColor(isSelectedCol && !this.sidebar.focused ? theme.color_selected : theme.color_dimmed);
+        term('└' + '─'.repeat(Math.max(0, cardW - 2)) + '┘');
+      }
+    }
+  }
+
+  /** Ensure the selected card is visible by adjusting scroll offset */
+  ensureCardVisible(col, tasks, innerWidth, maxDescLines, availableHeight) {
+    const selectedRow = this.board.selectedRow;
+    if (tasks.length === 0) { this.columnScrollOffsets[col] = 0; return; }
+
+    // Scroll up if needed
+    if (selectedRow < (this.columnScrollOffsets[col] || 0)) {
+      this.columnScrollOffsets[col] = selectedRow;
+      return;
+    }
+
+    // Scroll down if needed — calculate cumulative heights
+    let offset = this.columnScrollOffsets[col] || 0;
+    let cumH = 0;
+    for (let i = offset; i < tasks.length; i++) {
+      const ch = this.cardHeight(tasks[i], innerWidth, maxDescLines) + 1;
+      if (i === selectedRow) {
+        if (cumH + ch > availableHeight) {
+          // Need to scroll — increase offset until it fits
+          while (offset < selectedRow) {
+            offset++;
+            cumH = 0;
+            for (let j = offset; j <= selectedRow; j++) {
+              cumH += this.cardHeight(tasks[j], innerWidth, maxDescLines) + 1;
+            }
+            if (cumH <= availableHeight) break;
+          }
+          this.columnScrollOffsets[col] = offset;
+        }
+        return;
+      }
+      cumH += ch;
     }
   }
 
@@ -665,10 +837,10 @@ export class App {
           text = ' [h/j/k/l] select  [H/J/K/L] move  [a] connect  [x] del conn  [+/-] zoom  [S] SVG  [c] board  [q] quit';
         } else {
           const col = this.board.selectedColumn;
-          if (col === 0) text = ' [o] new  [/] search  [Enter] edit  [x] del  [d] diff  [m] plan  [M] run  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
-          else if (col === 1) text = ' [o] new  [/] search  [Enter] open  [x] del  [d] diff  [m] run  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
-          else if (col < 4) text = ' [o] new  [/] search  [Enter] open  [x] del  [d] diff  [m] move  [r] back  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
-          else text = ' [o] new  [/] search  [Enter] open  [x] del  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
+          if (col === 0) text = ' [o] new  [v] view  [/] search  [Enter] edit  [x] del  [d] diff  [m] plan  [M] run  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
+          else if (col === 1) text = ' [o] new  [v] view  [/] search  [Enter] open  [x] del  [d] diff  [m] run  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
+          else if (col < 4) text = ' [o] new  [v] view  [/] search  [Enter] open  [x] del  [d] diff  [m] move  [r] back  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
+          else text = ' [o] new  [v] view  [/] search  [Enter] open  [x] del  [s] sessions  [S] SVG  [c] canvas  [e] sidebar  [q] quit';
         }
         break;
       case InputMode.InputTitle:
@@ -687,6 +859,119 @@ export class App {
   }
 
   /** Draw a popup box outline */
+  drawTaskDetailPopup(width, height) {
+    const popup = this.taskDetailPopup;
+    const task = popup.task;
+    const theme = this.config.theme;
+
+    // Full-screen popup with margin
+    const mx = 3, my = 2;
+    const pw = width - mx * 2;
+    const ph = height - my * 2;
+    const px = mx;
+    const py = my;
+    const innerW = pw - 4; // padding inside borders
+
+    this.drawPopupBox(px, py, pw, ph, ` ${task.title.slice(0, pw - 10)} [v]View [Esc]Close `, theme);
+
+    // Build content lines
+    const lines = [];
+
+    // Status + Agent
+    lines.push({ label: 'Status', value: task.status.toUpperCase(), color: theme.color_accent });
+    lines.push({ label: 'Agent', value: task.agent, color: theme.color_text });
+    lines.push({ label: '', value: '' }); // blank line
+
+    // Title (full, wrapped)
+    lines.push({ label: 'TITLE', value: '', color: theme.color_column_header, isHeader: true });
+    const titleWrapped = this.wrapText(task.title, innerW);
+    for (const line of titleWrapped) {
+      lines.push({ label: '', value: line, color: theme.color_text });
+    }
+    lines.push({ label: '', value: '' });
+
+    // Description (full, wrapped)
+    if (task.description) {
+      lines.push({ label: 'DESCRIPTION', value: '', color: theme.color_column_header, isHeader: true });
+      const descWrapped = this.wrapText(task.description, innerW);
+      for (const line of descWrapped) {
+        lines.push({ label: '', value: line, color: theme.color_description });
+      }
+      lines.push({ label: '', value: '' });
+    }
+
+    // Metadata
+    lines.push({ label: 'DETAILS', value: '', color: theme.color_column_header, isHeader: true });
+    if (task.branchName) lines.push({ label: 'Branch', value: task.branchName, color: theme.color_text });
+    if (task.worktreePath) lines.push({ label: 'Worktree', value: task.worktreePath, color: theme.color_dimmed });
+    if (task.sessionName) lines.push({ label: 'Session', value: task.sessionName, color: theme.color_dimmed });
+    if (task.prUrl) lines.push({ label: 'PR', value: task.prUrl, color: theme.color_accent });
+    if (task.prNumber) lines.push({ label: 'PR #', value: String(task.prNumber), color: theme.color_accent });
+    if (task.createdAt) lines.push({ label: 'Created', value: task.createdAt, color: theme.color_dimmed });
+    if (task.updatedAt) lines.push({ label: 'Updated', value: task.updatedAt, color: theme.color_dimmed });
+    lines.push({ label: 'ID', value: task.id, color: theme.color_dimmed });
+
+    // Render lines with scroll
+    const visibleLines = ph - 3; // inside borders minus title bar
+    const maxScroll = Math.max(0, lines.length - visibleLines);
+    if (popup.scrollOffset > maxScroll) popup.scrollOffset = maxScroll;
+
+    for (let i = 0; i < visibleLines && (i + popup.scrollOffset) < lines.length; i++) {
+      const line = lines[i + popup.scrollOffset];
+      const ry = py + 2 + i;
+      this.moveTo(px + 2, ry);
+
+      if (line.isHeader) {
+        this.setColor(line.color || theme.color_column_header);
+        term.bold(line.label);
+      } else if (line.label) {
+        this.setColor(theme.color_dimmed);
+        term(line.label + ': ');
+        this.setColor(line.color || theme.color_text);
+        term(line.value.slice(0, innerW - line.label.length - 2));
+      } else {
+        this.setColor(line.color || theme.color_text);
+        term(line.value.slice(0, innerW));
+      }
+    }
+
+    // Scroll indicator
+    if (lines.length > visibleLines) {
+      this.moveTo(px + pw - 12, py + ph - 1);
+      this.setColor(theme.color_dimmed);
+      term(` ${popup.scrollOffset + 1}/${lines.length} `);
+    }
+  }
+
+  handleTaskDetailKey(key) {
+    const popup = this.taskDetailPopup;
+    switch (key) {
+      case 'ESCAPE': case 'q': case 'v':
+        this.taskDetailPopup = null;
+        break;
+      case 'j': case 'DOWN': case 'CTRL_J':
+        popup.scrollDown();
+        break;
+      case 'k': case 'UP': case 'CTRL_K':
+        popup.scrollUp();
+        break;
+      case 'CTRL_D':
+        popup.pageDown();
+        break;
+      case 'CTRL_U':
+        popup.pageUp();
+        break;
+      case 'ENTER':
+        // If task has a session, open shell popup
+        const task = popup.task;
+        if (task.sessionName && tmux.sessionExists(task.sessionName)) {
+          this.taskDetailPopup = null;
+          this.shellPopup = new ShellPopup(task.sessionName, task.title);
+        }
+        break;
+    }
+  }
+
   drawPopupBox(x, y, w, h, title, theme) {
     this.setColor(theme.color_popup_border);
 
@@ -736,6 +1021,7 @@ export class App {
     if (this.diffPopup) return this.handleDiffPopupKey(key);
     if (this.taskSearch) return this.handleTaskSearchKey(key);
     if (this.htmlPreview) return this.handleHtmlPreviewKey(key);
+    if (this.taskDetailPopup) return this.handleTaskDetailKey(key);
 
     // Input modes
     if (this.inputMode === InputMode.InputTitle) return this.handleInputTitleKey(key);
@@ -774,6 +1060,7 @@ export class App {
       case 'c': this.viewMode = ViewMode.Canvas; break;
       case 'S': this.exportSvg(); break;
       case 's': this.showSessions(); break;
+      case 'v': this.viewSelectedTask(); break;
     }
   }
 
@@ -1065,10 +1352,19 @@ export class App {
       return;
     }
 
-    // Open shell popup if session exists
+    // Open shell popup if session exists, otherwise show task detail
     if (task.sessionName && tmux.sessionExists(task.sessionName)) {
       this.shellPopup = new ShellPopup(task.sessionName, task.title);
+    } else {
+      this.taskDetailPopup = new TaskDetailPopup(task);
     }
+  }
+
+  /** Open task detail popup (press v for view) */
+  viewSelectedTask() {
+    const task = this.board.selectedTask();
+    if (!task) return;
+    this.taskDetailPopup = new TaskDetailPopup(task);
   }
 
   confirmDeleteTask() {

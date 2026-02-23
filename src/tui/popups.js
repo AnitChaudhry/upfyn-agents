@@ -95,3 +95,16 @@ export class FileSearchState {
     this.selected = 0;
   }
 }
+
+/** Task detail popup — full-screen view of a task */
+export class TaskDetailPopup {
+  constructor(task) {
+    this.task = task;
+    this.scrollOffset = 0;
+  }
+
+  scrollDown() { this.scrollOffset++; }
+  scrollUp() { if (this.scrollOffset > 0) this.scrollOffset--; }
+  pageDown() { this.scrollOffset += 10; }
+  pageUp() { this.scrollOffset = Math.max(0, this.scrollOffset - 10); }
+}
