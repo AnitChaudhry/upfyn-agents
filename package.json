@@ -40,10 +40,10 @@
   "homepage": "https://thinqmesh.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thinqmesh/upfyn-agents.git"
+    "url": "git+https://github.com/AnitChaudhry/upfyn-agents.git"
   },
   "bugs": {
-    "url": "https://github.com/thinqmesh/upfyn-agents/issues"
+    "url": "https://github.com/AnitChaudhry/upfyn-agents/issues"
   },
   "engines": {
     "node": ">=18"
