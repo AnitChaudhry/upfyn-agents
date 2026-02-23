@@ -1,4 +1,7 @@
 import whichSync from 'which';
+import { platform } from 'node:os';
+
+const IS_WIN = platform() === 'win32';
 
 /** Known coding agents */
 const KNOWN_AGENTS = [
@@ -46,6 +49,7 @@ export function defaultAgent() {
 
 /** Build interactive shell command for an agent with a prompt */
 export function buildInteractiveCommand(agent, prompt) {
+  if (IS_WIN) return buildWindowsCommand(agent, prompt);
   const escaped = prompt.replace(/'/g, "'\"'\"'");
   switch (agent.name) {
     case 'claude':    return `claude --dangerously-skip-permissions '${escaped}'`;
@@ -56,6 +60,21 @@ export function buildInteractiveCommand(agent, prompt) {
     case 'cline':     return `cline '${escaped}'`;
     case 'q':         return `q chat '${escaped}'`;
     default:          return `${agent.command} '${escaped}'`;
+  }
+}
+
+/** Build Windows-compatible command (cmd.exe safe, double-quote escaping) */
+export function buildWindowsCommand(agent, prompt) {
+  const escaped = prompt.replace(/"/g, '""');
+  switch (agent.name) {
+    case 'claude':    return `claude --dangerously-skip-permissions "${escaped}"`;
+    case 'aider':     return `aider --message "${escaped}"`;
+    case 'codex':     return `codex "${escaped}"`;
+    case 'gh-copilot': return `gh copilot suggest "${escaped}"`;
+    case 'opencode':  return `opencode "${escaped}"`;
+    case 'cline':     return `cline "${escaped}"`;
+    case 'q':         return `q chat "${escaped}"`;
+    default:          return `${agent.command} "${escaped}"`;
   }
 }
 

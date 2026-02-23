@@ -10,7 +10,7 @@ import { detectAvailableAgents, getAgent, buildInteractiveCommand } from './agen
 import { isGitRepo, currentBranch, diffStat, diffFull } from './git/git.js';
 import { createWorktree, initializeWorktree, removeWorktree } from './git/worktree.js';
 import { getPrState, createPr } from './git/provider.js';
-import * as tmux from './tmux/tmux.js';
+import * as session from './session/session.js';
 import { BoardState } from './tui/board.js';
 import { CanvasState, ViewMode, ConnectMode, NODE_WIDTH, NODE_HEIGHT, edgeAnchor } from './tui/canvas.js';
 import { SidebarState } from './tui/sidebar.js';
@@ -612,7 +612,7 @@ export class App {
     const py = Math.floor((height - ph) / 2) + 1;
 
     // Refresh content from tmux
-    popup.content = tmux.capturePane(popup.sessionName, ph + 20);
+    popup.content = session.captureOutput(popup.sessionName, ph + 20);
 
     this.drawPopupBox(px, py, pw, ph, ` ${popup.taskTitle} [Ctrl+q]Close `, theme);
 
@@ -973,7 +973,7 @@ export class App {
       case 'ENTER':
         // If task has a session, open shell popup
         const task = popup.task;
-        if (task.sessionName && tmux.sessionExists(task.sessionName)) {
+        if (task.sessionName && session.sessionExists(task.sessionName)) {
           this.taskDetailPopup = null;
           this.shellPopup = new ShellPopup(task.sessionName, task.title);
         }
@@ -1223,7 +1223,7 @@ export class App {
       default:
         // Forward key to tmux
         if (key.length === 1) {
-          tmux.sendKeys(popup.sessionName, key);
+          session.sendKeys(popup.sessionName, key);
         }
         break;
     }
@@ -1362,7 +1362,7 @@ export class App {
     }
 
     // Open shell popup if session exists, otherwise show task detail
-    if (task.sessionName && tmux.sessionExists(task.sessionName)) {
+    if (task.sessionName && session.sessionExists(task.sessionName)) {
       this.shellPopup = new ShellPopup(task.sessionName, task.title);
     } else {
       this.taskDetailPopup = new TaskDetailPopup(task);
@@ -1389,7 +1389,7 @@ export class App {
 
     // Kill tmux session
     if (task.sessionName) {
-      tmux.killSession(task.sessionName);
+      session.killSession(task.sessionName);
     }
 
     // Remove worktree
@@ -1498,14 +1498,14 @@ export class App {
         ? `Plan the implementation for: ${task.title}\n\nDetails: ${task.description}\n\nAnalyze the codebase and create a detailed plan. Do NOT implement yet.`
         : `Plan the implementation for: ${task.title}\n\nAnalyze the codebase and create a detailed plan. Do NOT implement yet.`;
 
-      // Get agent
+      // Get agent and spawn session
       const agent = getAgent(task.agent) || getAgent('claude');
       if (agent) {
         const cmd = buildInteractiveCommand(agent, prompt);
-        tmux.spawnSession(sessionName, wtPath, 'sh', ['-c', cmd]);
+        session.spawnSession(sessionName, wtPath, cmd, []);
 
-        // Poll for Claude acceptance prompt
-        if (agent.name === 'claude') {
+        // Poll for Claude acceptance prompt (only works with tmux backend)
+        if (agent.name === 'claude' && session.getBackend() === 'tmux') {
           this.pollForClaudeAcceptance(sessionName);
         }
       }
@@ -1528,9 +1528,9 @@ export class App {
     if (!this.db) return;
 
     // If already has a session, just update status
-    if (task.sessionName && tmux.sessionExists(task.sessionName)) {
+    if (task.sessionName && session.sessionExists(task.sessionName)) {
       // Send "proceed with implementation" to Claude
-      tmux.sendKeys(task.sessionName, 'proceed with implementation');
+      session.sendKeys(task.sessionName, 'proceed with implementation');
     }
 
     task.status = 'running';
@@ -1601,7 +1601,7 @@ export class App {
 
     // Kill tmux session
     if (task.sessionName) {
-      tmux.killSession(task.sessionName);
+      session.killSession(task.sessionName);
     }
 
     // Remove worktree (keep branch)
@@ -1737,20 +1737,30 @@ export class App {
   // ═══════════════════════════════════════════
 
   showSessions() {
-    const sessions = tmux.listSessions();
+    const sessions = session.listSessions();
     if (!sessions.length) {
       this.diffPopup = new DiffPopup('Agent Sessions', 'No active agent sessions.\n\nSessions are created when you move tasks to Planning or Running.');
       return;
     }
 
-    let content = `Active sessions on tmux server "upfyn":\n\n`;
+    const backendName = session.getBackend();
+    let content = `Active sessions (${backendName} backend):\n\n`;
     for (const s of sessions) {
       const age = Math.floor((Date.now() / 1000 - s.created) / 60);
-      content += `  ${s.name}\n`;
-      content += `    Created: ${age}m ago\n\n`;
+      content += `  ${s.name}`;
+      if (s.backend) content += `  [${s.backend}]`;
+      content += `\n    Created: ${age}m ago\n\n`;
     }
-    content += `\nAttach: tmux -L upfyn attach -t <session>\n`;
-    content += `View:   tmux -L upfyn list-sessions`;
+    if (backendName === 'tmux') {
+      content += `\nAttach: tmux -L upfyn attach -t <session>\n`;
+      content += `View:   tmux -L upfyn list-sessions`;
+    } else if (backendName === 'wt') {
+      content += `\nAgent sessions run in separate terminal tabs.\n`;
+      content += `Switch tabs to interact with agents directly.`;
+    } else {
+      content += `\nAgent sessions run as background processes.\n`;
+      content += `Output is captured in log files.`;
+    }
 
     this.diffPopup = new DiffPopup('Agent Sessions', content);
   }
@@ -1901,14 +1911,14 @@ export class App {
       attempts++;
 
       try {
-        const output = tmux.capturePane(sessionName, 10);
+        const output = session.captureOutput(sessionName, 10);
         if (output.includes('Yes, I accept') || output.includes('Do you want to proceed')) {
-          tmux.sendKeys(sessionName, 'y');
+          session.sendKeys(sessionName, 'y');
           return;
         }
         // Also check for the --dangerously-skip-permissions acceptance
         if (output.includes('accept the risks')) {
-          tmux.sendKeys(sessionName, 'yes');
+          session.sendKeys(sessionName, 'yes');
           return;
         }
       } catch { /* ignore */ }
