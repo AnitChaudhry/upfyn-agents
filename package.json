@@ -1,0 +1,45 @@
+{
+  "name": "skill-statusline",
+  "version": "2.0.0",
+  "description": "Claude Code statusline — themes, layouts, and CLI for terminal status display",
+  "type": "module",
+  "main": "bin/cli.js",
+  "bin": {
+    "ccsl": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "themes/",
+    "layouts/",
+    "commands/",
+    "scripts/",
+    "statusline-command.sh",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install-commands.js",
+    "test": "bash test/run-all.sh"
+  },
+  "keywords": [
+    "claude-code",
+    "statusline",
+    "terminal",
+    "themes",
+    "thinqmesh"
+  ],
+  "author": "Thinqmesh Technologies <hello@thinqmesh.com>",
+  "license": "GPL-3.0",
+  "homepage": "https://thinqmesh.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thinqmesh/skill-statusline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thinqmesh/skill-statusline/issues"
+  },
+  "devDependencies": {
+    "release-it": "^19.0.5",
+    "@release-it/conventional-changelog": "^10.0.5"
+  }
+}
