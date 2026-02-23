@@ -1,15 +1,17 @@
 {
-  "name": "skill-statusline",
-  "version": "2.0.0",
-  "description": "Claude Code statusline — themes, layouts, and CLI for terminal status display",
+  "name": "upfyn-agents",
+  "version": "1.0.0",
+  "description": "Upfyn Agents — Terminal task board for managing AI coding agent sessions",
   "type": "module",
-  "main": "bin/cli.js",
+  "main": "src/index.js",
   "bin": {
-    "ccsl": "bin/cli.js"
+    "ccsl": "bin/cli.js",
+    "upfyn": "src/index.js"
   },
   "files": [
     "bin/",
     "lib/",
+    "src/",
     "themes/",
     "layouts/",
     "commands/",
@@ -19,13 +21,18 @@
   ],
   "scripts": {
     "postinstall": "node scripts/install-commands.js",
-    "test": "bash test/run-all.sh"
+    "test": "bash test/run-all.sh",
+    "start": "node src/index.js"
   },
   "keywords": [
     "claude-code",
-    "statusline",
+    "coding-agents",
     "terminal",
-    "themes",
+    "task-board",
+    "ai-agents",
+    "tmux",
+    "git-worktree",
+    "upfyn",
     "thinqmesh"
   ],
   "author": "Thinqmesh Technologies <hello@thinqmesh.com>",
@@ -33,10 +40,21 @@
   "homepage": "https://thinqmesh.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thinqmesh/skill-statusline.git"
+    "url": "git+https://github.com/thinqmesh/upfyn-agents.git"
   },
   "bugs": {
-    "url": "https://github.com/thinqmesh/skill-statusline/issues"
+    "url": "https://github.com/thinqmesh/upfyn-agents/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "terminal-kit": "^3.1",
+    "better-sqlite3": "^11",
+    "toml": "^3",
+    "html-to-text": "^9",
+    "open": "^10",
+    "which": "^4"
   },
   "devDependencies": {
     "release-it": "^19.0.5",

@@ -1,346 +1,355 @@
 <div align="center">
-  <img src="public/logo.svg" alt="Upfyn-Code" width="64" height="64">
-  <h1>Upfyn-Code</h1>
+  <h1>Upfyn Agents</h1>
+  <p><strong>A terminal-native task board for managing multiple AI coding agent sessions with isolated git worktrees.</strong></p>
+  <p>Manage Claude Code, Aider, Codex, GitHub Copilot, and more — all from one unified terminal interface.</p>
 </div>
 
+---
 
-A desktop and mobile UI for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Cursor CLI](https://docs.cursor.com/en/cli/overview) and [Codex](https://developers.openai.com/codex). You can use it locally or remotely to view your active projects and sessions in Claude Code, Cursor, or Codex and make changes to them from everywhere (mobile or desktop). This gives you a proper interface that works everywhere. 
+## How It Works
 
-<div align="right"><i><b>English</b> · <a href="./README.ko.md">한국어</a> · <a href="./README.zh-CN.md">中文</a> · <a href="./README.ja.md">日本語</a></i></div>
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        UPFYN AGENTS  my-project                     │
+├──────────┬───────────┬───────────┬───────────┬──────────────────────┤
+│ BACKLOG  │ PLANNING  │  RUNNING  │  REVIEW   │  DONE               │
+│ ───────  │ ────────  │  ───────  │  ──────   │  ────               │
+│          │           │           │           │                      │
+│ > Auth   │  Refactor │  Fix bug  │  Add API  │  Setup CI           │
+│   [claude│  [claude] │  [aider]  │  [claude] │  [claude]           │
+│          │           │           │  PR #42   │                      │
+│  Caching │           │           │           │                      │
+│  [aider] │           │           │           │                      │
+│          │           │           │           │                      │
+├──────────┴───────────┴───────────┴───────────┴──────────────────────┤
+│ [o] new [/] search [m] move [d] diff [s] sessions [S] SVG [q] quit │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-## Screenshots
+Each task flows through five stages. When a task moves to **Planning**, Upfyn automatically creates an isolated git worktree and spawns your chosen AI agent inside a dedicated tmux session:
 
-<div align="center">
-  
-<table>
-<tr>
-<td align="center">
-<h3>Desktop View</h3>
-<img src="public/screenshots/desktop-main.png" alt="Desktop Interface" width="400">
-<br>
-<em>Main interface showing project overview and chat</em>
-</td>
-<td align="center">
-<h3>Mobile Experience</h3>
-<img src="public/screenshots/mobile-chat.png" alt="Mobile Interface" width="250">
-<br>
-<em>Responsive mobile design with touch navigation</em>
-</td>
-</tr>
-<tr>
-<td align="center" colspan="2">
-<h3>CLI Selection</h3>
-<img src="public/screenshots/cli-selection.png" alt="CLI Selection" width="400">
-<br>
-<em>Select between Claude Code, Cursor CLI and Codex</em>
-</td>
-</tr>
-</table>
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      Upfyn Agents TUI                               │
+├─────────────────────────────────────────────────────────────────────┤
+│  Backlog  │  Planning  │  Running  │  Review  │  Done               │
+│  ┌─────┐  │  ┌─────┐   │  ┌─────┐  │  ┌─────┐ │                    │
+│  │Task1│  │  │Task2│   │  │Task3│  │  │Task4│ │                    │
+│  └─────┘  │  └─────┘   │  └─────┘  │  └─────┘ │                    │
+└───────────┴────────────┴──────┬────┴──────┬───┴────────────────────┘
+                    │           │           │
+                    ▼           ▼           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    tmux server "upfyn"                               │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Session: task-a1b2c3d4--my-project--refactor-auth              │ │
+│  │  ┌──────────────────────────────────────┐                      │ │
+│  │  │  claude --dangerously-skip-perms ... │                      │ │
+│  │  │  > Planning implementation...        │                      │ │
+│  │  └──────────────────────────────────────┘                      │ │
+│  ├────────────────────────────────────────────────────────────────┤ │
+│  │ Session: task-e5f6g7h8--my-project--fix-bug                    │ │
+│  │  ┌──────────────────────────────────────┐                      │ │
+│  │  │  aider --message "Fix the login..." │                      │ │
+│  │  │  > Implementing fix...               │                      │ │
+│  │  └──────────────────────────────────────┘                      │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+                    │           │
+                    ▼           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Git Worktrees                                     │
+│                                                                      │
+│  .upfyn/worktrees/refactor-auth/    ← branch: task/refactor-auth    │
+│  .upfyn/worktrees/fix-bug/          ← branch: task/fix-bug          │
+│  .upfyn/worktrees/add-api/          ← branch: task/add-api          │
+│                                                                      │
+│  Each worktree = isolated copy of the repo for parallel work         │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
+## Task Workflow
 
+```
+  ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌────────┐    ┌──────┐
+  │ BACKLOG │───>│ PLANNING │───>│ RUNNING │───>│ REVIEW │───>│ DONE │
+  └─────────┘    └──────────┘    └─────────┘    └────────┘    └──────┘
+                      │              │              │              │
+                 Create worktree  Agent is      Optional PR    Cleanup
+                 Spawn agent     implementing   Push + PR      worktree
+                 in planning     (auto-sent     Can resume     Keep branch
+                 mode            "proceed")     from here
+```
 
-</div>
+- **Backlog** — Ideas and upcoming tasks. Edit title/description here.
+- **Planning** — Worktree created, agent spawned in planning mode. Agent analyzes the codebase and creates a plan.
+- **Running** — Agent is implementing. Upfyn sends "proceed with implementation" automatically.
+- **Review** — Work done. Optionally create a PR via `gh`. Resume to address feedback.
+- **Done** — Worktree cleaned up, tmux session killed. Branch preserved locally.
 
-## Features
+## Canvas View
 
-- **Responsive Design** - Works seamlessly across desktop, tablet, and mobile so you can also use Claude Code, Cursor, or Codex from mobile 
-- **Interactive Chat Interface** - Built-in chat interface for seamless communication with Claude Code, Cursor, or Codex
-- **Integrated Shell Terminal** - Direct access to Claude Code, Cursor CLI, or Codex through built-in shell functionality
-- **File Explorer** - Interactive file tree with syntax highlighting and live editing
-- **Git Explorer** - View, stage and commit your changes. You can also switch branches 
-- **Session Management** - Resume conversations, manage multiple sessions, and track history
-- **TaskMaster AI Integration** *(Optional)* - Advanced project management with AI-powered task planning, PRD parsing, and workflow automation
-- **Model Compatibility** - Works with Claude Sonnet 4.5, Opus 4.5, and GPT-5.2 
+Press `c` to switch to the canvas — a spatial view of all tasks with connections:
 
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ CANVAS [c]Board [a]Connect [+/-]Zoom [S]SVG                        │
+│                                                                      │
+│   ┌──────────────────────┐          ┌──────────────────────┐        │
+│   │ Setup Database       │─────────>│ Add API Endpoints    │        │
+│   │ [done] claude        │          │ [running] claude     │        │
+│   └──────────────────────┘          └──────────────────────┘        │
+│                                              │                       │
+│                                              │ "after API"           │
+│                                              ▼                       │
+│   ┌──────────────────────┐          ┌──────────────────────┐        │
+│   │ Write Tests          │<─────────│ Frontend Integration │        │
+│   │ [backlog] aider      │          │ [planning] claude    │        │
+│   └──────────────────────┘          └──────────────────────┘        │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- Navigate nodes with `h/j/k/l`, move them with `H/J/K/L`
+- Draw connections with `a` (connect mode)
+- Export the entire strategy to **SVG** with `S`
+
+## SVG Export
+
+Press `S` from either view to export a publication-ready SVG of your task board or canvas:
+
+```
+Board view → upfyn-board-{timestamp}.svg    (columns + cards)
+Canvas view → upfyn-canvas-{timestamp}.svg  (nodes + arrows)
+```
+
+SVGs include full color theming, status badges, agent labels, and connection arrows.
+
+## Session Management
+
+Press `s` to view all active agent sessions:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Agent Sessions                                        │
+│                                                       │
+│ Active sessions on tmux server "upfyn":               │
+│                                                       │
+│   task-a1b2c3d4--my-project--refactor-auth            │
+│     Created: 12m ago                                  │
+│                                                       │
+│   task-e5f6g7h8--my-project--fix-bug                  │
+│     Created: 45m ago                                  │
+│                                                       │
+│ Attach: tmux -L upfyn attach -t <session>             │
+│ View:   tmux -L upfyn list-sessions                   │
+└──────────────────────────────────────────────────────┘
+```
+
+Open any task's live session with `Enter` to see the agent's output in real-time:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Fix authentication bug                   [Ctrl+q]    │
+│                                                       │
+│ claude> I'll fix the authentication bug by updating   │
+│ the token validation logic in auth.js...              │
+│                                                       │
+│ Changes made:                                         │
+│   src/auth.js - Fixed token expiry check              │
+│   src/middleware.js - Added refresh logic              │
+│                                                       │
+│ Ready for review.                                     │
+│                                                       │
+│ [Ctrl+j/k] Scroll  [Ctrl+d/u] Page  [Ctrl+g] Bottom  │
+└──────────────────────────────────────────────────────┘
+```
 
 ## Quick Start
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v22 or higher
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured, and/or
-- [Cursor CLI](https://docs.cursor.com/en/cli/overview) installed and configured, and/or
-- [Codex](https://developers.openai.com/codex) installed and configured
+- **tmux** — Agent sessions run in a dedicated tmux server
+- **git** — Worktree isolation for parallel development
+- **gh** (optional) — GitHub CLI for PR operations
+- At least one AI coding agent (Claude Code, Aider, Codex, etc.)
 
-### One-click Operation (Recommended)
-
-No installation required, direct operation:
+### Install & Run
 
 ```bash
-npx @upfyn/upfyn-code
-```
-
-The server will start and be accessible at `http://localhost:3001` (or your configured PORT).
-
-**To restart**: Simply run the same `npx` command again after stopping the server
-### Global Installation (For Regular Use)
-
-For frequent use, install globally once:
-
-```bash
-npm install -g @upfyn/upfyn-code
-```
-
-Then start with a simple command:
-
-```bash
-upfyn-code
-```
-
-
-**To restart**: Stop with Ctrl+C and run `upfyn-code` again.
-
-**To update**:
-```bash
-uc update
-```
-
-### CLI Usage
-
-After global installation, you have access to both `upfyn-code` and `uc` commands:
-
-| Command / Option | Short | Description |
-|------------------|-------|-------------|
-| `uc` or `upfyn-code` | | Start the server (default) |
-| `ucstart` | | Start the server explicitly |
-| `ucstatus` | | Show configuration and data locations |
-| `uc update` | | Update to the latest version |
-| `uchelp` | | Show help information |
-| `ucversion` | | Show version information |
-| `--port <port>` | `-p` | Set server port (default: 3001) |
-| `--database-path <path>` | | Set custom database location |
-
-**Examples:**
-```bash
-uc                         # Start with defaults
-uc-p 8080              # Start on custom port
-ucstatus                   # Show current configuration
-```
-
-### Run as Background Service (Recommended for Production)
-
-For production use, run Upfyn-Code as a background service using PM2 (Process Manager 2):
-
-#### Install PM2
-
-```bash
-npm install -g pm2
-```
-
-#### Start as Background Service
-
-```bash
-# Start the server in background
-pm2 start upfyn-code --name "upfyn-code"
-
-# Or using the shorter alias
-pm2 start uc--name "upfyn-code"
-
-# Start on a custom port
-pm2 start uc--name "upfyn-code" -- --port 8080
-```
-
-
-#### Auto-Start on System Boot
-
-To make Upfyn-Code start automatically when your system boots:
-
-```bash
-# Generate startup script for your platform
-pm2 startup
-
-# Save current process list
-pm2 save
-```
-
-
-### Local Development Installation
-
-1. **Clone the repository:**
-```bash
-git clone https://github.com/AnitChaudhry/UpfynAI-Code.git
-cd UpfynAI-Code
-```
-
-2. **Install dependencies:**
-```bash
+# Install
 npm install
+
+# Run in a git project directory
+node src/index.js .
+
+# Or use the binary after npm link
+npx upfyn
+
+# Dashboard mode (multi-project, no git required)
+npx upfyn -g
 ```
 
-3. **Configure environment:**
-```bash
-cp .env.example .env
-# Edit .env with your preferred settings
+### Configuration
+
+Global config at `~/.config/upfyn-agents/config.toml` (Linux) or `%APPDATA%/upfyn-agents/config.toml` (Windows):
+
+```toml
+default_agent = "claude"
+
+[worktree]
+enabled = true
+auto_cleanup = true
+base_branch = "main"
+
+[theme]
+color_selected = "#ead49a"
+color_normal = "#5cfff7"
+color_dimmed = "#9C9991"
+color_text = "#f2ece6"
+color_accent = "#5cfff7"
+color_description = "#C4B0AC"
+color_column_header = "#a0d2fa"
+color_popup_border = "#9ffcf8"
+color_popup_header = "#69fae7"
 ```
 
-4. **Start the application:**
-```bash
-# Development mode (with hot reload)
-npm run dev
+Per-project config at `<project>/.upfyn/config.toml`:
 
+```toml
+default_agent = "aider"
+base_branch = "develop"
+github_url = "https://github.com/org/repo"
+copy_files = ".env,config.json"
+init_script = "npm install"
 ```
-The application will start at the port you specified in your .env
 
-5. **Open your browser:**
-   - Development: `http://localhost:3001`
+## Keyboard Reference
 
-## Security & Tools Configuration
+### Board View
 
-**🔒 Important Notice**: All Claude Code tools are **disabled by default**. This prevents potentially harmful operations from running automatically.
+| Key | Action |
+|-----|--------|
+| `h` / `l` | Move between columns |
+| `j` / `k` | Move between tasks |
+| `o` | Create new task |
+| `Enter` | Open task session / edit backlog task |
+| `x` | Delete task (with confirmation) |
+| `d` | Show git diff for task branch |
+| `m` | Move task to next stage |
+| `M` | Move directly to Running (skip Planning) |
+| `r` | Resume task (Review back to Running) |
+| `/` | Search tasks by title |
+| `s` | View active agent sessions |
+| `S` | Export current view to SVG |
+| `c` | Switch to canvas view |
+| `e` | Toggle project sidebar |
+| `q` | Quit |
 
-### Enabling Tools
+### Canvas View
 
-To use Claude Code's full functionality, you'll need to manually enable tools:
+| Key | Action |
+|-----|--------|
+| `h` / `j` / `k` / `l` | Select nodes by direction |
+| `H` / `J` / `K` / `L` | Move selected node |
+| `a` | Start connection (draw arrow) |
+| `x` | Delete connection from selected node |
+| `+` / `-` | Zoom in / out |
+| `p` | HTML preview of selected node |
+| `b` | Open HTML content in browser |
+| `S` | Export canvas to SVG |
+| `c` / `Esc` | Back to board view |
 
-1. **Open Tools Settings** - Click the gear icon in the sidebar
-3. **Enable Selectively** - Turn on only the tools you need
-4. **Apply Settings** - Your preferences are saved locally
+### Task Session Popup
 
-<div align="center">
+| Key | Action |
+|-----|--------|
+| `Ctrl+j` / `Ctrl+k` | Scroll up/down |
+| `Ctrl+d` / `Ctrl+u` | Page down/up |
+| `Ctrl+g` | Jump to bottom |
+| `Ctrl+q` / `Esc` | Close popup |
+| Other keys | Forwarded to the agent session |
 
-![Tools Settings Modal](public/screenshots/tools-modal.png)
-*Tools Settings interface - enable only what you need*
+### PR Creation
 
-</div>
+| Key | Action |
+|-----|--------|
+| `Tab` | Switch between title and description |
+| `Ctrl+s` | Push branch + create PR |
+| `Esc` | Cancel |
 
-**Recommended approach**: Start with basic tools enabled and add more as needed. You can always adjust these settings later.
+### Task Description Input
 
-## TaskMaster AI Integration *(Optional)*
+| Key | Action |
+|-----|--------|
+| `#` / `@` | Open file search (fuzzy find project files) |
+| `Enter` | Save and create task |
+| `Esc` | Cancel |
 
-Upfyn-Code supports **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** (aka claude-task-master) integration for advanced project management and AI-powered task planning.
+## Supported Agents
 
-It provides
-- AI-powered task generation from PRDs (Product Requirements Documents)
-- Smart task breakdown and dependency management  
-- Visual task boards and progress tracking
+Detected automatically in order of preference:
 
-**Setup & Documentation**: Visit the [TaskMaster AI GitHub repository](https://github.com/eyaltoledano/claude-task-master) for installation instructions, configuration guides, and usage examples.
-After installing it you should be able to enable it from the Settings
-
-
-## Usage Guide
-
-### Core Features
-
-#### Project Management
-It automatically discovers Claude Code, Cursor or Codex sessions when available and groups them together into projects
-session counts
-- **Project Actions** - Rename, delete, and organize projects
-- **Smart Navigation** - Quick access to recent projects and sessions
-- **MCP support** - Add your own MCP servers through the UI 
-
-#### Chat Interface
-- **Use responsive chat or Claude Code/Cursor CLI/Codex CLI** - You can either use the adapted chat interface or use the shell button to connect to your selected CLI. 
-- **Real-time Communication** - Stream responses from your selected CLI (Claude Code/Cursor/Codex) with WebSocket connection
-- **Session Management** - Resume previous conversations or start fresh sessions
-- **Message History** - Complete conversation history with timestamps and metadata
-- **Multi-format Support** - Text, code blocks, and file references
-
-#### File Explorer & Editor
-- **Interactive File Tree** - Browse project structure with expand/collapse navigation
-- **Live File Editing** - Read, modify, and save files directly in the interface
-- **Syntax Highlighting** - Support for multiple programming languages
-- **File Operations** - Create, rename, delete files and directories
-
-#### Git Explorer
-
-
-#### TaskMaster AI Integration *(Optional)*
-- **Visual Task Board** - Kanban-style interface for managing development tasks
-- **PRD Parser** - Create Product Requirements Documents and parse them into structured tasks
-- **Progress Tracking** - Real-time status updates and completion tracking
-
-#### Session Management
-- **Session Persistence** - All conversations automatically saved
-- **Session Organization** - Group sessions by project and timestamp
-- **Session Actions** - Rename, delete, and export conversation history
-- **Cross-device Sync** - Access sessions from any device
-
-### Mobile App
-- **Responsive Design** - Optimized for all screen sizes
-- **Touch-friendly Interface** - Swipe gestures and touch navigation
-- **Mobile Navigation** - Bottom tab bar for easy thumb navigation
-- **Adaptive Layout** - Collapsible sidebar and smart content prioritization
-- **Add shortcut to Home Screen** - Add a shortcut to your home screen and the app will behave like a PWA
+| Agent | Command | Description |
+|-------|---------|-------------|
+| Claude Code | `claude` | Anthropic's Claude Code CLI |
+| Aider | `aider` | AI pair programming in your terminal |
+| Codex | `codex` | OpenAI's Codex CLI |
+| GitHub Copilot | `gh copilot` | GitHub Copilot CLI |
+| OpenCode | `opencode` | AI-powered coding assistant |
+| Cline | `cline` | AI coding assistant |
+| Amazon Q | `q` | Amazon Q Developer CLI |
 
 ## Architecture
 
-### System Overview
-
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Backend       │    │  Agent     │
-│   (React/Vite)  │◄──►│ (Express/WS)    │◄──►│  Integration    │
-│                 │    │                 │    │                │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+src/
+├── index.js              # Entry point, CLI arg parsing
+├── app.js                # Main App class — rendering, key handling, actions
+├── db/
+│   ├── models.js         # Task, Project, TaskConnection data structures
+│   └── database.js       # SQLite operations (CRUD, schema, migrations)
+├── config/
+│   └── config.js         # Global + per-project TOML configuration
+├── agent/
+│   └── agent.js          # Agent registry, detection, command building
+├── git/
+│   ├── git.js            # Git helpers (branch, diff, merge)
+│   ├── worktree.js       # Worktree lifecycle (create, init, remove)
+│   └── provider.js       # GitHub PR operations via gh CLI
+├── tmux/
+│   └── tmux.js           # Session management (spawn, capture, kill)
+├── tui/
+│   ├── board.js          # Board navigation state
+│   ├── canvas.js         # Canvas state (nodes, zoom, pan, connections)
+│   ├── html-preview.js   # HTML preview (terminal + browser)
+│   ├── sidebar.js        # Project sidebar state
+│   ├── popups.js         # All popup state classes
+│   └── theme.js          # Hex color utilities
+└── utils/
+    ├── mermaid.js         # Mermaid diagram parser
+    └── svg-export.js      # SVG export (board + canvas views)
 ```
 
-### Backend (Node.js + Express)
-- **Express Server** - RESTful API with static file serving
-- **WebSocket Server** - Communication for chats and project refresh
-- **Agent Integration (Claude Code / Cursor CLI / Codex)** - Process spawning and management
-- **File System API** - Exposing file browser for projects
+## Database
 
-### Frontend (React + Vite)
-- **React 18** - Modern component architecture with hooks
-- **CodeMirror** - Advanced code editor with syntax highlighting
+All data stored centrally — never inside your project directories:
 
+| Platform | Location |
+|----------|----------|
+| Linux | `~/.config/upfyn-agents/` |
+| macOS | `~/Library/Application Support/upfyn-agents/` |
+| Windows | `%APPDATA%/upfyn-agents/` |
 
-
-
-
-### Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on commit conventions, development workflow, and release process.
-
-## Troubleshooting
-
-### Common Issues & Solutions
-
-
-#### "No Claude projects found"
-**Problem**: The UI shows no projects or empty project list
-**Solutions**:
-- Ensure [Claude Code](https://docs.anthropic.com/en/docs/claude-code) is properly installed
-- Run `claude` command in at least one project directory to initialize
-- Verify `~/.claude/projects/` directory exists and has proper permissions
-
-#### File Explorer Issues
-**Problem**: Files not loading, permission errors, empty directories
-**Solutions**:
-- Check project directory permissions (`ls -la` in terminal)
-- Verify the project path exists and is accessible
-- Review server console logs for detailed error messages
-- Ensure you're not trying to access system directories outside project scope
-
+- `index.db` — Global project index
+- `projects/{hash}.db` — Per-project task database
 
 ## License
 
-GNU General Public License v3.0 - see [LICENSE](LICENSE) file for details.
-
-This project is open source and free to use, modify, and distribute under the GPL v3 license.
-
-## Acknowledgments
-
-### Built With
-- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** - Anthropic's official CLI
-- **[Cursor CLI](https://docs.cursor.com/en/cli/overview)** - Cursor's official CLI
-- **[Codex](https://developers.openai.com/codex)** - OpenAI Codex
-- **[React](https://react.dev/)** - User interface library
-- **[Vite](https://vitejs.dev/)** - Fast build tool and dev server
-- **[Tailwind CSS](https://tailwindcss.com/)** - Utility-first CSS framework
-- **[CodeMirror](https://codemirror.net/)** - Advanced code editor
-- **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(Optional)* - AI-powered project management and task planning
-
-## Support & Community
-
-### Stay Updated
-- **Star** this repository to show support
-- **Watch** for updates and new releases
-- **Follow** the project for announcements
+GNU General Public License v3.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
-  <strong>Made with care for the Claude Code, Cursor and Codex community.</strong>
+  <strong>Built by <a href="https://thinqmesh.com">Thinqmesh Technologies</a></strong>
 </div>
