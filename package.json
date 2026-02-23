@@ -1,6 +1,6 @@
 {
   "name": "upfyn-agents",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Upfyn Agents — Terminal task board for managing AI coding agent sessions",
   "type": "module",
   "main": "src/index.js",

@@ -168,7 +168,13 @@ export class App {
   // ═══════════════════════════════════════════
 
   draw() {
-    term.clear();
+    // Buffer all output to prevent flicker — cork holds writes,
+    // uncork flushes everything to the terminal as a single chunk
+    process.stdout.cork();
+
+    term.moveTo(1, 1);
+    term.eraseDisplay();
+
     const width = (Number.isFinite(term.width) && term.width > 0) ? term.width : 80;
     const height = (Number.isFinite(term.height) && term.height > 0) ? term.height : 24;
 
@@ -198,6 +204,9 @@ export class App {
 
     // Footer
     this.drawFooter(width, height);
+
+    // Flush all buffered output at once — no flicker
+    process.nextTick(() => process.stdout.uncork());
   }
 
   /** Word-wrap text to fit within maxWidth, returning array of lines */
